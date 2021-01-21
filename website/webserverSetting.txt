@@ -1,0 +1,48 @@
+
+*workflow of setting webserver
+1. # apt install nginx
+2. # apt install gunicorn
+3. # rm /etc/nginx/sites-enabled/default
+4. # nano /etc/nginx/sites-enabled/flytaxi
+  server {
+    listen 80;
+    server_name 35.201.168.28;
+
+    location /static {
+        alias /home/bdse15_group2/FlaskPRJ/FlyTaxi/static;
+    }
+
+    location / {
+        proxy_pass http://localhost:8000;
+        include /etc/nginx/proxy_params;
+        proxy_redirect off;
+    }
+}
+5. modify firewall if existing
+6. $ nproc --all   (check the cores of CPU, gunicorn work(-w) numbers = ( 2 * num_cores ) + 1 )
+7. $ gunicorn -w 9 run:app  (for testing)
+8. # apt install supervisor
+9. # nano /etc/supervisor/conf.d/flytaxi.conf
+[program:flytaxi]
+directory=/home/bdse15_group2/FlaskPRJ        
+command=gunicorn -w 9 run:app
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+stderr_logfile=/var/log/flasklog/flytaxi.err.log
+stdout_logfile=/var/log/flasklog/flytaxi.out.log
+10. # mkdir -p /var/log/flasklog
+11. # touch /var/log/flasklog/flytaxi.err.log
+12. # touch /var/log/flasklog/flytaxi.out.log
+13. # supervisorctl reload   (if modifing the source code, we have to execute this command)
+
+
+* free domain name: no-ip  =>  bind ip to domain name (expired within 30 days)
+in this case, fqdn is : bdse15group2.ddns.net
+1. then modify /etc/nginx/sites-enabled/flytaxi file, "server_name" must be changed to FQDN
+
+* Encrypt SSL: let's encrypt 
+https://certbot.eff.org/    
+(choose webserver and OS in "My HTTP website is running on" linebar, 
+and the detail info would be shown below)

@@ -1,0 +1,529 @@
+{% extends 'layout.html' %}
+{% block customHeader %}
+<!-- Page Header -->
+<header class="masthead" style="background-image: url('../static/images/Taxi01.jpg')">
+  <div class="overlay"></div>
+  <div class="container">
+    <div class="row">
+      <div class="col-lg-8 col-md-10 mx-auto">
+        <div class="site-heading">
+          <h1>芝加哥計程車</h1>
+          <h1>載客點分析</h1>
+          <span class="subheading">開車省時間 乘車有效率</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+{% endblock customHeader %}
+
+{% block content %}
+<!-- Main Content -->
+<div class="col-lg-8 col-md-10 mx-auto" id="top">
+  <div class="site-heading" style="margin-bottom:5px;text-align: center;">
+    <h1>即時載客量查詢</h1>
+  </div>
+</div>
+
+<div class="input-group mb-3">
+  <input id="address" list="defaultAddress" type="text" class="form-control rounded-pill" placeholder="請輸入目前位置"
+    aria-describedby="button-addon2" onChange="addPoint()">
+  <datalist id="defaultAddress"></datalist>
+  <div class="input-group-append">
+    <button class="btn btn-outline-secondary rounded-pill" type="button" id="addMarkerBtn"
+      style="height:39px;padding-bottom:0px; padding-top:3px;" onClick="addPoint()">Double Clicks</button>
+  </div>
+</div>
+
+<div id="map"></div>
+
+<div class="container">
+  <div class="row"><span class="font-weight-bold" style="font-size: 15px;">Appendix</span></div>
+  <div class="row" style="margin:2px 2px">
+    <span class="font-weight-bold" style="font-size: 15px;">Profits level ($) : </span>
+    <span style="font-size: 15px;">&nbsp; Below 7.44 ="low" &nbsp;&nbsp;&nbsp;&nbsp; Above 7.44 = "high"
+      &nbsp;&nbsp;&nbsp;&nbsp;</span>
+    <span class="font-weight-bold" style="font-size: 15px;"> Fare_level ($) : </span>
+    <span style="font-size: 15px;">&nbsp; Below 7.75 = "low" &nbsp;&nbsp;&nbsp;&nbsp; 7.75 ~ 17.25 =
+      "medium" &nbsp;&nbsp;&nbsp;&nbsp; Above 17.25 = "high"</span>
+  </div>
+  <div class="row" style="margin:2px 2px">
+    <span class="font-weight-bold" style="font-size: 15px;"> Leaving : </span>
+    <span style="font-size: 15px;">&nbsp; Probability of Getting out of Chicago&nbsp;&nbsp;&nbsp;&nbsp;</span>
+    <span class="font-weight-bold" style="font-size: 15px;"> Tips : </span>
+    <span style="font-size: 15px;">&nbsp; Probabitity of Getting Tips&nbsp;&nbsp;&nbsp;&nbsp;</span>
+    <span class="font-weight-bold" style="font-size: 15px;"> Passengers : </span>
+    <span style="font-size: 15px;">&nbsp; Passengers per hour&nbsp;&nbsp;&nbsp;&nbsp;</span>
+    <span class="font-weight-bold" style="font-size: 15px;"> Miles : </span>
+    <span style="font-size: 15px;">&nbsp; Miles per trip</span>
+  </div>
+</div>
+
+<hr>
+<div class="col-lg-8 col-md-10 mx-auto">
+  <div class="site-heading" style="margin-bottom:5px;text-align: center;margin-top:15px">
+    <h1 id="graph">載客量一日變化</h1>
+  </div>
+</div>
+
+<div class="container">
+  <div class="row">
+    <div class="col-lg-7  mx-auto">
+      <div id="dataviz" style="overflow: auto"></div>
+    </div>
+  </div>
+</div>
+<a href="#top">TOP</a>
+
+{% endblock content %}
+
+{% block jscode %}
+<script src="https://d3js.org/d3.v4.js"></script>
+<script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+<script type="text/javascript">
+
+  // setting drop box //
+  var defaultAddress = [
+    { label: "芝加哥劇院", value: "175 N State StChicago, IL 60601" },
+    { label: "加菲爾植物園", value: "300 N Central Park Ave, Chicago, IL 60624" },
+    { label: "WNDR 博物館", value: "1130 W Monroe StChicago, IL 60607" }
+  ];
+  // load data into datalist
+  for (let i = 0; i < defaultAddress.length; i++) {
+    let address = defaultAddress[i];
+    let op = document.createElement("option");
+    op.setAttribute("label", address.label);
+    op.setAttribute("value", address.value);
+    document.getElementById("defaultAddress").appendChild(op);
+  };
+
+  // loading data from database via flask framework (using Jinja2 syntax) //
+  var inputDT = '{{ strgeo }}';
+  //console.log(inputDT);
+  var listClusters = JSON.parse(inputDT.replace(/&#39;/g, '"'));
+  //console.log(listClusters);
+  var inputDT02 = '{{ clustersInfo }}';
+  //console.log(inputDT02);
+  var listInfo = JSON.parse(inputDT02.replace(/&#39;/g, '"'));
+  //console.log(listInfo);
+  var globalLocalLatLng = 0;  // stored lat. and lng. of local address
+  var localMarker = 0;  // flag of local marker for google map api
+  var cmpAddrStr = '';  // comparing whether the inputed local address is duplicated
+
+
+  // converting local address to lat. and lng. //
+  function addPoint() {
+    let address = document.getElementById("address").value;
+    if (cmpAddrStr != address) {
+      cmpAddrStr = address
+      var geocoder = new google.maps.Geocoder();
+      geocoder.geocode({ 'address': address }, function (results, status) {
+        if (status == google.maps.GeocoderStatus.OK) {
+          let addLat = results[0].geometry.location.lat();
+          let addLng = results[0].geometry.location.lng();
+          //console.log(globalLocalLatLng);
+          globalLocalLatLng = [addLat, addLng];
+        }
+      });
+    }
+  }
+
+
+  // javascipt version for google map api via callback //
+  // ref: https://medium.com/front-end-augustus-study-notes/google-map-api-1-a4e794b0162f
+  function initMap() {  // initializing the map
+    var centInfo = {
+      center: new google.maps.LatLng(41.881832, -87.623177),
+      zoom: 13,
+      minZoom: 13,
+      maxZoom: 13,
+      zoomControl: false,
+      mapTypeId: google.maps.MapTypeId.ROADMAP
+    };
+    // instanciating the google map class
+    var map = new google.maps.Map(document.getElementById("map"), centInfo);
+
+    // instanciating the canvas for direction
+    var directionsService = new google.maps.DirectionsService();
+    var directionsDisplay = new google.maps.DirectionsRenderer();
+    directionsDisplay.setMap(map);
+
+    // instanciating google.maps.InfoWindow() class for the lebal box for every marker
+    var infowindow = new google.maps.InfoWindow();
+
+    //console.log(listClusters);
+
+    // drawing every marker in the map
+    for (let i = 0; i < listClusters.length; i++) {
+      var clusterID = String(listClusters[i]['Cluster_id']);
+      var lat = listClusters[i]['Latitude'];
+      var long = listClusters[i]['Longitude'];
+
+      // converting lat. and lng to the format of google map required
+      var latlngset = new google.maps.LatLng(lat, long);
+
+      // setting the radius according with the Profit level
+      var pointType = listClusters[i]['Profits_level'] == 'High' ? { fillColor: "#ff0000", strokeColor: "#ffbb00" } : { fillColor: "#0000ff", strokeColor: "#009dff" };
+
+      // flag for infowindow on / off
+      let infoFlag = 0;
+
+      // setting information for every marker
+      var marker = new google.maps.Marker({
+        map: map, title: clusterID, position: latlngset,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          fillOpacity: 0.4,
+          fillColor: pointType.fillColor,
+          strokeOpacity: 1.0,
+          strokeColor: pointType.strokeColor,
+          strokeWeight: 3.0,
+          scale: 20
+        }
+      });
+
+      // defined the content of infowindow
+      var content = '<div class="container" style="padding-top:3px;"><table class="table" style="font-size:20px;text-align:center;"><thead class="thead-dark"><tr><th scope="col">Passengers</th>' +
+        '<th scope="col">Miles</th></tr></thead><tbody><tr><td>' + listClusters[i]['Pickup_count'] + '</td>' +
+        '<td>' + listClusters[i]['Trip_Miles'] + '</td></tr></tbody><thead class="thead-dark"><tr><th scope="col">Profit Level</th>' +
+        '<th scope="col">Fare Level</th></tr></thead><tbody><tr><td>' + listClusters[i]['Profits_level'] + '</td>' +
+        '<td>' + listClusters[i]['Trip_Total_level'] + '</td></tr></tbody><thead class="thead-dark"><tr>' +
+        '<th scope="col">Leaving (%)</th><th scope="col">Tips (%)</th></tr></thead>' +
+        '<tbody><tr><td>' + listClusters[i]['Tips_yn'] + '%</td><td>' + listClusters[i]['long_yn'] + '%</td></tr></tbody></table>' +
+        '<a href="#graph" style="color: white;"><button class="btn btn-secondary rounded-pill" onclick="drawGraph(' + clusterID + ')">More Informations</button></a></div>';
+
+
+      // setting the click event while clicking every marker in the map
+      // about IIFEs: https://pjchender.blogspot.com/2016/05/javascriptiifesimmediately-invoked.html
+      google.maps.event.addListener(marker, 'click', (function (marker, content, infowindow) {
+        return function () {
+          infowindow.setContent(content);  // setting the inforwindow content
+          directionsDisplay.setMap(map);  // setting the direction service
+
+          // google map directions API //
+          if (globalLocalLatLng != 0) {
+            directionsService.route({
+              origin: { lat: globalLocalLatLng[0], lng: globalLocalLatLng[1] },
+              destination: { lat: marker.position.lat(), lng: marker.position.lng() },
+              travelMode: google.maps.TravelMode['DRIVING']
+            }, (response, status) => {
+              if (status === 'OK') {
+                directionsDisplay.setDirections(response);
+              } else {
+                window.alert('Directions request failed due to ' + status);
+              }
+            });
+          }
+          // end of google direction //
+
+          // on /off switcher
+          if (infoFlag == 0) {
+            infowindow.open(map, marker);
+            infoFlag = 1;
+          } else {
+            infowindow.close(map, marker);
+            infoFlag = 0;
+          }
+        };
+      })(marker, content, infowindow));
+
+
+      // add point by button
+      // ref: https://stackoverflow.com/questions/45814530/adding-markers-to-google-map-on-button-click
+      // ref: https://stackoverflow.com/questions/49613610/how-to-google-maps-api-close-infowindow-when-clicking-something-else-marker
+      google.maps.event.addDomListener(document.getElementById('addMarkerBtn'), 'click', function () {
+        if (globalLocalLatLng != 0) {
+          if (localMarker != 0) localMarker.setMap(null);  // clearing existed local marker
+          directionsDisplay.setMap(null);  // clearing existed direction
+
+          let tmpLatLng = {
+            lat: globalLocalLatLng[0],
+            lng: globalLocalLatLng[1]
+          };
+
+          map.setCenter(tmpLatLng);  // redirecting center of map
+
+          // marking up the local address
+          localMarker = new google.maps.Marker({
+            position: tmpLatLng,
+            map: map
+          });
+        }
+      });
+    }
+  }
+
+
+  // setting the timespan for comparision losted data from datat
+  var timespan = ["00:00:00", "01:00:00", "02:00:00", "03:00:00",
+    "04:00:00", "05:00:00", "06:00:00", "07:00:00",
+    "08:00:00", "09:00:00", "10:00:00", "11:00:00",
+    "12:00:00", "13:00:00", "14:00:00", "15:00:00",
+    "16:00:00", "17:00:00", "18:00:00", "19:00:00",
+    "20:00:00", "21:00:00", "22:00:00", "23:00:00"];
+
+  // function for drawing statistics graph according to the cluster id //
+  function drawGraph(id) {
+    let listContent = [];
+
+    // filtering the data from inputed id
+    for (let i = 0; i < listInfo.length; i++) {
+      if (listInfo[i]['Cluster_id'] == id) {
+        listContent.push(listInfo[i]);
+      }
+    }
+    //console.log(listContent);
+
+    // data formating
+    let formatedDT = [];
+    for (let i = 0; i < 24; i++) {
+      formatedDT.push({ "x": timespan[i], "Count": 0, "Reward": 0, "TimeCost": 0, "Speed": 0 });
+    }
+    for (let i = 0; i < listContent.length; i++) {
+      for (let j = 0; j < 24; j++) {
+        if (listContent[i]['Time'] == formatedDT[j]['x']) {
+          formatedDT[j]['Count'] = listContent[i]['Pickup_count'];
+          formatedDT[j]['Reward'] = listContent[i]['Trip_Total'];
+          formatedDT[j]['TimeCost'] = listContent[i]['Trip_Seconds'];
+          formatedDT[j]['Speed'] = Math.round(listContent[i]['Trip_Miles'] / (listContent[i]['Trip_Seconds'] / 60 / 60));
+          // Speed = Miles / hour
+        }
+      }
+    }
+    // ex: 12:00:00 => 12  remaining the partition of hour for drawing easily
+    for (let i = 0; i < formatedDT.length; i++) {
+      formatedDT[i]['x'] = formatedDT[i]['x'].replace(/:00:00/g, '');
+    }
+    //console.log(formatedDT);
+
+    // selecting the existed svg canvas and remove it
+    let svg = d3.select("#dataviz");
+    svg.selectAll("*").remove();
+
+    // call drawing functions
+    let i = ['Count', 'Reward', 'TimeCost', 'Speed'];
+    let mapTmp = ['美金', '秒', '英哩/小時']
+    barChart(formatedDT, i[0]);
+    for (let j = 1; j < i.length; j++) {
+      lineChart(formatedDT, i[j], mapTmp[j - 1]);
+    }
+  }
+
+  function lineChart(input, condition, unit) {
+
+    // set the dimensions and margins of the graph
+    var margin = { top: 95, right: 30, bottom: 50, left: 60 },
+      width = 650 - margin.left - margin.right,
+      height = 500 - margin.top - margin.bottom;
+
+    // append the svg object to the body of the page
+    var svg = d3.select("#dataviz")
+      .append("div")
+      .attr("id", condition)
+      .append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+      .attr("transform",
+        "translate(" + margin.left + "," + margin.top + ")");
+
+
+    // convert format of inputed data
+    var parseTime = d3.timeParse("%H");
+    let data = input
+      .map(function (d) {
+        return {
+          x: parseTime(d.x),
+          Count: d[condition]
+        };
+      });
+
+
+    // console.log(input)
+    // console.log(data)
+
+    // Add X axis
+    var scaleX = d3.scaleTime()
+      .domain(d3.extent(data, function (d) { return d.x; }))
+      .range([0, width]);
+
+
+
+    let xAxisGenerator = d3.axisBottom(scaleX);
+    xAxisGenerator.ticks(24).tickFormat(d3.timeFormat("%H"))
+    // .tickSize(-height);
+
+    let xAxis = svg.append("g")
+      .attr("transform", "translate(0," + height + ")")
+      .attr("font-size", "7")
+      .call(xAxisGenerator);
+
+
+    // Add Y axis
+    var Ymax = d3.max(data, (d) => { return d.Count; })
+
+    var scaleY = d3.scaleLinear()
+      .domain([0, Ymax])
+      .range([height, 0]);
+
+
+    let yAxisGenerator = d3.axisLeft(scaleY);
+
+    let yAxis = svg.append("g")
+      .call(yAxisGenerator);
+
+
+    // Initialize line with group a
+    svg
+      .append('g')
+      .append("path")
+      .datum(data)
+      .attr("fill", "none")
+      .attr("stroke", "steelblue")
+      .attr("stroke-width", 3)
+      .attr("d", d3.line()
+        .x(function (d) { return scaleX(d.x); })
+        .y(function (d) { return scaleY(d.Count); })
+      );
+
+    // append title
+    svg.append('text')
+      .attr('class', 'title')
+      .attr("x", (width / 2))
+      .attr("y", (-6))
+      .attr('text-anchor', 'middle')
+      .style("font", "23px sans-serif")
+      .text(condition + " vs Time");
+
+
+    // append X+Y軸單位
+    svg.append('text')
+      .attr('x', width)
+      .attr('y', 400)
+      .style("font-size", "15px")
+      .attr('text-anchor', 'middle')
+      .text('小時');
+
+    svg.append('text')
+      .attr('x', -(height / 12))
+      .attr('y', -35)
+      .style("font-size", "15px")
+      .attr('transform', 'rotate(-90)')
+      .attr('text-anchor', 'middle')
+      .text(unit);
+
+  }
+
+
+  function barChart(input, condition) {
+
+    // set the dimensions and margins of the graph
+    var margin = { top: 50, right: 50, bottom: 50, left: 60 },
+      width = 650 - margin.left - margin.right,
+      height = 500 - margin.top - margin.bottom;
+
+    // append the svg object to the body of the page
+    var svg = d3.select("#dataviz")
+      .append("div")
+      .attr("id", condition)
+      .append("svg")
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .append("g")
+      .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+
+
+    // convert format of inputed data
+    var parseTime = d3.timeParse("%H");
+    let data = input
+      .map(function (d) {
+        return {
+          x: parseTime(d.x),
+          Count: d[condition]
+        };
+      });
+
+    // Add X axis
+    var scaleX = d3.scaleTime()
+      .domain(d3.extent(data, function (d) { return d.x; }))
+      .range([0, width]);
+
+    let xAxisGenerator = d3.axisBottom(scaleX);
+    xAxisGenerator.ticks(24).tickFormat(d3.timeFormat("%H"));
+
+
+    let xAxis = svg.append("g")
+      .attr("transform", "translate(0," + height + ")")
+      .attr("font-size", "7")
+      .call(xAxisGenerator)
+      .selectAll("text")
+      .style("text-anchor", "end");
+
+
+    // Add Y axis
+    var Ymax = d3.max(data, (d) => { return d.Count; });
+
+    var scaleY = d3.scaleLinear()
+      .domain([0, Ymax])
+      .range([height, 0]);
+
+    let yAxisGenerator = d3.axisLeft(scaleY);
+
+    let yAxis = svg.append("g")
+      .call(yAxisGenerator);
+
+
+    // Initialize line with group a
+    // Bars
+    svg.selectAll(".bar")
+      .data(data)
+      .enter()
+      .append("rect")
+      .attr("x", function (d) { return scaleX(d.x); })
+      .attr("width", 8)
+      .attr("fill", "#EA7500")
+      .attr("height", function (d) { return height - scaleY(0); }) // always equal to 0
+      .attr("y", function (d) { return scaleY(0); });  //動畫開始前的y是圖表底部，柱子才會從底下開始長
+
+    // Animation
+    svg.selectAll("rect")
+      .transition()
+      .duration(1100)
+      .attr("y", function (d) { return scaleY(d.Count); })
+      .attr("height", function (d) { return height - scaleY(d.Count); })
+      .delay(function (d, i) { return (i * 3) });
+
+    // append title
+    svg.append('text')
+      .attr('class', 'title')
+      .attr("x", (width / 2))
+      .attr("y", (-6))
+      .attr('text-anchor', 'middle')
+      .style("font", "23px sans-serif")
+      .text(condition + " vs Time");
+
+    // append X+Y軸單位
+    svg.append('text')
+      .attr('class', 'label')
+      .attr('x', -(height / 12))
+      .attr('y', -35)
+      .style("font-size", "15px")
+      .attr('transform', 'rotate(-90)')
+      .attr('text-anchor', 'middle')
+      .text('乘車量');
+
+    svg.append('text')
+      .attr('class', 'label')
+      .attr('x', width)
+      .attr('y', 440)
+      .style("font-size", "15px")
+      .attr('text-anchor', 'middle')
+      .text('小時');
+
+  }
+
+</script>
+<script async defer
+  src="https://maps.googleapis.com/maps/api/js?key=OURGOOGLECERTIFICATEKEY&callback=initMap&libraries=&v=weekly"></script>
+{% endblock jscode %}

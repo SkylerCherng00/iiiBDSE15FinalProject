@@ -1,0 +1,6 @@
+Columns of clustersInfo.csv
+Cluster_id,Week,Time,pickup_count,Trip_Total,Trip_Miles,Trip_Seconds,Tips_yn,long_yn,traffic_yn,outside_yn,Trip_Total_level,Profits_level
+
+
+Columns of clusterPos.csv
+ClusterID,Latitude,Longitude,Radius

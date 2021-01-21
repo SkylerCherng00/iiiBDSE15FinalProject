@@ -1,0 +1,4 @@
+1. this website use "Clean Blog" template in BootStrap.
+ref: https://startbootstrap.com/theme/clean-blog
+
+2. the core concept of coding the flask website accords with MVC
