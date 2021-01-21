@@ -4,9 +4,9 @@ import csv
 
 # conntection infomation
 connection = pymysql.connect(host='localhost',
-                             user='root',
-                             password='87564231',
-                             database='taxilab',
+                             user='ourAcc',
+                             password='ourPW',
+                             database='ourDB',
                              charset='utf8mb4',
                              cursorclass=pymysql.cursors.DictCursor)
 
